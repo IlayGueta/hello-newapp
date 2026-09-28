@@ -1,5 +1,5 @@
 def appname = "hello-newapp"
-def repo = "elevy99927"  // Replace with your DockerHub username
+def repo = "ilaygueta"  // Replace with your DockerHub username
 def appimage = "${repo}/${appname}"
 def apptag = "${env.BUILD_NUMBER}"
 
@@ -19,9 +19,9 @@ podTemplate(containers: [
         stage('build') {
             container('docker') {
               echo "Building docker image..."
-              sh "echo docker push $appimage"
+              sh "docker build -t ${appName}:${env.BUILD_NUMBER} ."
+              
             }
         } //end build
     }
 }
-
