@@ -1,7 +1,8 @@
-def appName = "hello-newapp"
+def appName = "ilay-infrastructure-api"
 def repo = "ilagueta"  // Replace with your DockerHub username
 def appimage = "${repo}/${appName}"
 def apptag = "${env.BUILD_NUMBER}"
+
 
 podTemplate(
     containers: [
@@ -21,7 +22,19 @@ podTemplate(
             image: 'aquasec/trivy:latest',
             command: 'cat',
             ttyEnabled: true
-        )
+        ),
+        containerTemplate(
+            name: 'helm',
+            image: 'alpine/helm:3.17.3',
+            command: 'cat',
+            ttyEnabled: true
+        ),
+        containerTemplate(
+            name: 'sonar',
+            image: 'sonarsource/sonar-scanner-cli:latest',
+            command: 'cat',
+            ttyEnabled: true
+        ),
     ],
     volumes: [
         emptyDirVolume(mountPath: '/var/run', memory: false)
@@ -48,28 +61,56 @@ podTemplate(
                         echo "Running Trivy scan..."
                         sh "trivy fs ."
                     }
+                },
+                'SonarQube Scan': {
+                    container('sonar') {
+                        withCredentials([
+                            string(
+                                credentialsId: 'sonar-token',
+                                variable: 'SONAR_TOKEN'
+                            )
+                        ]) {
+
+                            withEnv([
+                                'SONAR_HOST_URL=http://host.docker.internal:9000'
+                            ]) {
+                                echo "Running SonarQube analysis..."
+
+                                sh '''
+                                sonar-scanner \
+                                    -Dsonar.projectKey=infrastructure-api-ci-pipeline \
+                                    -Dsonar.sources=.
+                                '''    
+                            }
+                        }
+                    }
                 }
             )
         }
-
-        stage('push') {
+        stage('Push') {
             container('docker') {
-                script {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'dockerhub',
-                            usernameVariable: 'USERNAME',
-                            passwordVariable: 'PASSWORD'
-                        )
-                    ]) {
-                        echo "Deploying with username ${env.USERNAME}"
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub',
+                        usernameVariable: 'USERNAME',
+                        passwordVariable: 'PASSWORD'
+                    )
+                ]) {
+                    echo "Pushing image with username ${env.USERNAME}"
 
-                        sh 'echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin'
-                        sh "docker tag ${appName}:${env.BUILD_NUMBER} ${env.USERNAME}/${appName}:${env.BUILD_NUMBER}"
-                        sh "docker push ${env.USERNAME}/${appName}:${env.BUILD_NUMBER}"
-                    }
-                }
+                    sh 'echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin'
+                    sh "docker tag ${appName}:${env.BUILD_NUMBER} ${env.USERNAME}/${appName}:${env.BUILD_NUMBER}"
+                    sh "docker push ${env.USERNAME}/${appName}:${env.BUILD_NUMBER}"
+                }        
+            } // end push
+        }
+
+        stage('Deploy') {
+            container('helm') {
+                echo "Deploying application with Helm..."
+                
+                sh "helm template hello-newapp ./chart > hello-newapp.yaml"
             }
-        } // end push
+        }
     }
 }
